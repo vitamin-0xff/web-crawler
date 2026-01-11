@@ -96,7 +96,7 @@ async def worker(queue: asyncio.Queue, session, base_netloc: str, state: Crawlin
         queue.task_done()
 
 
-async def crawl_async(start_url, max_pages=-1, num_workers=5):
+async def crawl_async(start_url, max_pages=-1, num_workers=5, output_file=None):
     """
     Crawls a website starting from a given URL asynchronously.
     """
@@ -130,18 +130,26 @@ async def crawl_async(start_url, max_pages=-1, num_workers=5):
         await asyncio.gather(*tasks, return_exceptions=True) # Wait for all workers to finish
 
     print(f"\nCrawled {state.pages_crawled_count} pages.")
-    print("All found URLs:")
-    for url in sorted(list(state.visited)):
-        print(url)
+    
+    if output_file:
+        with open(output_file, 'w') as f:
+            for url in sorted(list(state.visited)):
+                f.write(f"{url}\n")
+        print(f"Saved {len(state.visited)} URLs to {output_file}")
+    else:
+        print("All found URLs:")
+        for url in sorted(list(state.visited)):
+            print(url)
 
 def main():
     parser = argparse.ArgumentParser(description="A simple web crawler.")
     parser.add_argument("start_url", help="The URL to start crawling from.")
     parser.add_argument("--max-pages", type=int, default=-1, help="The maximum number of pages to crawl. Use -1 for unlimited.")
     parser.add_argument("--num-workers", type=int, default=5, help="The number of concurrent workers for async crawling.")
+    parser.add_argument("--output-file", help="The file to save the extracted URLs to.")
     args = parser.parse_args()
 
-    asyncio.run(crawl_async(args.start_url, args.max_pages, args.num_workers))
+    asyncio.run(crawl_async(args.start_url, args.max_pages, args.num_workers, args.output_file))
 
 if __name__ == "__main__":
     main()
