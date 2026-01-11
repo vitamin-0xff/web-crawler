@@ -14,7 +14,7 @@ This project is a Python-based asynchronous web crawler designed to extract URLs
 
 **Architecture:**
 
-The crawler uses a worker-based asynchronous architecture. A pool of worker tasks fetches URLs from a shared queue, processes the pages, and adds new links back to the queue. A `CrawlingState` class is used to manage the shared state between the workers, including the set of visited URLs and the total number of pages crawled. This ensures that the `max_pages` limit is strictly enforced and that the crawler terminates gracefully when the crawling process is complete.
+The crawler uses a worker-based asynchronous architecture. A pool of worker tasks fetches URLs from a shared queue, processes the pages, and adds new links back to the queue. The crawler uses a shared `visited` set and a `pages_crawled_count` list to manage the state across all workers. The crawler also separates JavaScript links from the other URLs and does not crawl them.
 
 ## Building and Running
 
@@ -33,12 +33,13 @@ The crawler is run from the command line using the `main.py` script. The followi
 *   `start_url`: The URL to start crawling from (required).
 *   `--max-pages`: The maximum number of pages to crawl. Use -1 for unlimited (optional, default: -1).
 *   `--num-workers`: The number of concurrent workers for async crawling (optional, default: 5).
+*   `--output-file`: The file to save the extracted URLs to (optional).
 
 **Example:**
 
 ```bash
-# Crawl a website with a maximum of 100 pages and 10 workers
-./.venv/bin/python main.py https://example.com --max-pages 100 --num-workers 10
+# Crawl a website with a maximum of 100 pages and 10 workers, and save the output to a file
+./.venv/bin/python main.py https://example.com --max-pages 100 --num-workers 10 --output-file urls.txt
 ```
 
 **TODO:** Add instructions for running tests once a testing framework is set up.
