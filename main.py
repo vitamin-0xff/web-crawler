@@ -13,13 +13,6 @@ def matchsubdomain(base_netloc: str, link_netloc: str):
     """
     return link_netloc.endswith(base_netloc)
 
-class CrawlingState:
-    def __init__(self, max_pages):
-        self.visited = set()
-        self.pages_crawled_count = 0
-        self.max_pages = max_pages
-        self.lock = asyncio.Lock()
-
 async def get_page_content_async(session, url):
     """
     Fetches the content of a web page asynchronously.
@@ -46,77 +39,56 @@ async def extract_links_from_html(html_content, base_url):
         absolute_link = parsed_link.scheme + "://" + parsed_link.netloc + parsed_link.path
         links.add(absolute_link)
     
-    for script_tag in soup.find_all('script'):
-        script_content = script_tag.string
-        if script_content:
-            script_links = await extract_links_from_script(script_content, base_url)
-            links.update(script_links)
+    for script_tag in soup.find_all('script', src=True):
+        src = script_tag['src']
+        absolute_link = urljoin(base_url, src)
+        parsed_link = urlparse(absolute_link)
+        absolute_link = parsed_link.scheme + "://" + parsed_link.netloc + parsed_link.path
+        links.add(absolute_link)
             
     return links
 
-async def extract_links_from_script(script_content, base_url):
-    """
-    Extracts all links from the JavaScript content of a page.
-    """
-    links = set()
-    
-    # Regex for fetch, axios and generic urls
-    patterns = [
-        r'fetch\s*\(\s*[\'\`"]([^\'\`"]+)[\'\`"]\s*\)',
-        r'axios\.get\s*\(\s*[\'\`"]([^\'\`"]+)[\'\`"]\s*\)',
-        r'[\'\`"](https?://[^\'\`"]+|(?:/[^\'\`"]+))[\'\`"]'
-    ]
-    
-    for pattern in patterns:
-        for url in re.findall(pattern, script_content):
-            absolute_link = urljoin(base_url, url)
-            parsed_link = urlparse(absolute_link)
-            absolute_link = parsed_link.scheme + "://" + parsed_link.netloc + parsed_link.path
-            links.add(absolute_link)
-            
-    return links
-
-async def worker(queue: asyncio.Queue, session, base_netloc: str, state: CrawlingState):
+async def worker(queue: asyncio.Queue, session, base_netloc: str, visited: set, js_links: set, pages_crawled_count: list, max_pages: int):
     """
     A worker that fetches URLs from the queue, processes them, and adds new links back to the queue.
     """
     while True:
         current_url = await queue.get()
-        if current_url is None:
-            break
+        try:
+            if current_url is None:
+                break
 
-        async with state.lock:
-            if current_url in state.visited:
-                queue.task_done()
-                continue
-            
-            if state.max_pages != -1 and state.pages_crawled_count >= state.max_pages:
-                queue.task_done()
+            if current_url in visited or current_url in js_links:
                 continue
 
+            if max_pages != -1 and pages_crawled_count[0] >= max_pages:
+                continue
+                
             if not matchsubdomain(base_netloc, urlparse(current_url).netloc):
-                queue.task_done()
+                continue
+            
+            if current_url.endswith('.js'):
+                js_links.add(current_url)
+                print(f"Found JS file: {current_url}")
                 continue
 
-            state.visited.add(current_url)
-            state.pages_crawled_count += 1
-            print(f"Crawling: {current_url} (Crawled: {state.pages_crawled_count}/{state.max_pages if state.max_pages != -1 else 'unlimited'})")
+            visited.add(current_url)
+            pages_crawled_count[0] += 1
+            print(f"Crawling: {current_url} (Crawled: {pages_crawled_count[0]}/{max_pages if max_pages != -1 else 'unlimited'})")
 
-        content, content_type = await get_page_content_async(session, current_url)
-        if content:
-            links = set()
-            if 'html' in content_type:
-                links = await extract_links_from_html(content, current_url)
-            # Add other content type handlers here if needed
-            
-            for link in links:
-                async with state.lock:
-                    if state.max_pages != -1 and state.pages_crawled_count >= state.max_pages:
-                        break
-                    if link not in state.visited and matchsubdomain(base_netloc, urlparse(link).netloc):
+            content, content_type = await get_page_content_async(session, current_url)
+            if content:
+                links = set()
+                if 'html' in content_type:
+                    links = await extract_links_from_html(content, current_url)
+                
+                for link in links:
+                    if link not in visited and link not in js_links and matchsubdomain(base_netloc, urlparse(link).netloc):
+                        if max_pages != -1 and pages_crawled_count[0] >= max_pages:
+                            break
                         await queue.put(link)
-        
-        queue.task_done()
+        finally:
+            queue.task_done()
 
 async def crawl_async(start_url, max_pages=-1, num_workers=5, output_file=None):
     """
@@ -126,12 +98,14 @@ async def crawl_async(start_url, max_pages=-1, num_workers=5, output_file=None):
     queue = asyncio.Queue()
     await queue.put(start_url)
     
-    state = CrawlingState(max_pages)
+    visited = set()
+    js_links = set()
+    pages_crawled_count = [0]
 
     async with aiohttp.ClientSession() as session:
         tasks = []
         for _ in range(num_workers):
-            task = asyncio.create_task(worker(queue, session, base_netloc, state))
+            task = asyncio.create_task(worker(queue, session, base_netloc, visited, js_links, pages_crawled_count, max_pages))
             tasks.append(task)
 
         await queue.join()
@@ -141,17 +115,21 @@ async def crawl_async(start_url, max_pages=-1, num_workers=5, output_file=None):
 
         await asyncio.gather(*tasks, return_exceptions=True)
 
-    print(f"\nCrawled {state.pages_crawled_count} pages.")
+    print(f"\nCrawled {pages_crawled_count[0]} pages.")
     
     if output_file:
         with open(output_file, 'w') as f:
-            for url in sorted(list(state.visited)):
+            for url in sorted(list(visited)):
                 f.write(f"{url}\n")
-        print(f"Saved {len(state.visited)} URLs to {output_file}")
+        print(f"Saved {len(visited)} URLs to {output_file}")
     else:
         print("All found URLs:")
-        for url in sorted(list(state.visited)):
+        for url in sorted(list(visited)):
             print(url)
+            
+    print("\nFound JavaScript files:")
+    for url in sorted(list(js_links)):
+        print(url)
 
 def main():
     parser = argparse.ArgumentParser(description="A simple web crawler.")
