@@ -1,0 +1,25 @@
+[project]
+name = "url-extractor"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "requests",
+    "beautifulsoup4",
+    "urllib3",
+    "idna",
+    "certifi",
+    "chardet",
+    "charset-normalizer",
+    "typing_extensions",
+    "soupsieve",
+    "aiohttp",
+    "multidict",
+    "attrs",
+    "yarl",
+    "propcache",
+    "aiohappyeyeballs",
+    "aiosignal",
+    "frozenlist",
+]
