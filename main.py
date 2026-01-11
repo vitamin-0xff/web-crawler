@@ -121,7 +121,11 @@ async def crawl_async(start_url, max_pages=-1, num_workers=5, output_file=None):
         with open(output_file, 'w') as f:
             for url in sorted(list(visited)):
                 f.write(f"{url}\n")
+            f.write("\nJavaScript links:\n")
+            for url in sorted(list(js_links)):
+                f.write(f"{url}\n")
         print(f"Saved {len(visited)} URLs to {output_file}")
+        print(f"Saved {len(js_links)} JavaScript files to {output_file}")
     else:
         print("All found URLs:")
         for url in sorted(list(visited)):
